@@ -2,7 +2,7 @@ project(
   'i2c-c-template',
   'c',
   version: '0.1',
-  default_options: ['warning_level=3', 'werror=false', 'c_std=gnu2x'],
+  default_options: ['b_ndebug=if-release', 'warning_level=3', 'werror=false', 'c_std=gnu2x'],
 )
 
 source_files = files(

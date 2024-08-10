@@ -388,13 +388,13 @@ i2c_read_buffer (i2c_handle sd, size_t s, uint8_t buffer[s])
 bool
 i2c_read_register (i2c_handle sd, uint8_t device, uint8_t reg, size_t count, uint8_t buffer[count])
 {
-  uint8_t buf[] = { device, reg };
   if (!i2c_start (sd, device, write_op))
     {
       dbgPrintExt ("Couldn't start write operation");
       return false;
     }
 
+  uint8_t buf[] = { device, reg };
   i2c_write_buffer (sd, sizeof buf, buf);
 
   if (!i2c_start (sd, device, read_op))
