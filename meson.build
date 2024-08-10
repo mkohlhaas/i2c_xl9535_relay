@@ -5,10 +5,6 @@ project(
   default_options: ['warning_level=3', 'werror=false', 'c_std=gnu2x'],
 )
 
-# filesystem module
-fs = import('fs')
-fs.copyfile('tt.sh')
-
 source_files = files(
   'i2c.c',
   'i2cdriver.c',

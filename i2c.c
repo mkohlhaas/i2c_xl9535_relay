@@ -1,167 +1,167 @@
+#include "error.h"
 #include "i2cdriver.h"
 #include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <unistd.h>
 
-static void
-print_usage ()
+#define DEVICE 0x20
+
+#define XL9535_INPUT_PORT     0x00
+#define XL9535_OUTPUT_PORT    0x02
+#define XL9535_INVERSION_PORT 0x04
+#define XL9535_CONFIG_PORT    0x06
+
+#define RELAY_0  (1 << 0)
+#define RELAY_1  (1 << 1)
+#define RELAY_2  (1 << 2)
+#define RELAY_3  (1 << 3)
+#define RELAY_4  (1 << 4)
+#define RELAY_5  (1 << 5)
+#define RELAY_6  (1 << 6)
+#define RELAY_7  (1 << 7)
+#define RELAY_8  (1 << 8)
+#define RELAY_9  (1 << 9)
+#define RELAY_10 (1 << 10)
+#define RELAY_11 (1 << 11)
+#define RELAY_12 (1 << 12)
+#define RELAY_13 (1 << 13)
+#define RELAY_14 (1 << 14)
+#define RELAY_15 (1 << 15)
+
+void
+print_output_config_ports (i2c_handle sd)
 {
-  printf ("Commands are:");
-  printf ("\n");
-  printf ("  i              display status information (uptime, voltage, current, temperature)\n");
-  printf ("  x              I2C bus reset\n");
-  printf ("  d              device scan\n");
-  printf ("  w dev <bytes>  write bytes to I2C device dev\n");
-  printf ("  p              send a STOP\n");
-  printf ("  r dev N        read N bytes from I2C device dev, then STOP\n");
-  printf ("  m              enter I2C bus monitor mode\n");
-  printf ("  c              enter I2C bus capture mode\n");
+  uint8_t buffer[2] = {};
+  dbgPrint ("%hhu %hhu\n", buffer[0], buffer[1]);
+  i2c_read_register (sd, DEVICE, XL9535_OUTPUT_PORT, sizeof buffer, buffer);
+  dbgPrint ("0x%hhx 0x%hhx\n", buffer[0], buffer[1]);
+  i2c_read_register (sd, DEVICE, XL9535_CONFIG_PORT, sizeof buffer, buffer);
+  dbgPrint ("0x%hhx 0x%hhx\n", buffer[0], buffer[1]);
 }
 
-static int
-i2c_commands (i2c_handle sd, int argc, char *argv[])
+void
+inversion_off (i2c_handle sd)
 {
-  for (int i = 0; i < argc; i++)
+  dbgPrint ("inversion off\n");
+  uint8_t buffer[] = { 0x0, 0x0 };
+  i2c_write_register (sd, DEVICE, XL9535_INVERSION_PORT, sizeof buffer, buffer);
+}
+
+void
+enable_circuits (i2c_handle sd)
+{
+  dbgPrint ("enable circuits\n");
+  uint8_t buffer[] = { 0x0, 0x0 };
+  i2c_write_register (sd, DEVICE, XL9535_CONFIG_PORT, sizeof buffer, buffer);
+}
+
+void
+disable_circuits (i2c_handle sd)
+{
+  dbgPrint ("disable circuits\n");
+  uint8_t buffer[] = { 0xff, 0xff };
+  i2c_write_register (sd, DEVICE, XL9535_CONFIG_PORT, sizeof buffer, buffer);
+}
+
+void
+switch_on_relays (i2c_handle sd)
+{
+  uint8_t buffer[] = { 0xff, 0xff };
+  i2c_write_register (sd, DEVICE, XL9535_OUTPUT_PORT, sizeof buffer, buffer);
+}
+
+void
+switch_off_relays (i2c_handle sd)
+{
+  uint8_t buffer[] = { 0x0, 0x0 };
+  i2c_write_register (sd, DEVICE, XL9535_OUTPUT_PORT, sizeof buffer, buffer);
+}
+
+void
+switch_on_relay (i2c_handle sd, uint16_t relay)
+{
+  uint8_t buffer[2] = {};
+  i2c_read_register (sd, DEVICE, XL9535_OUTPUT_PORT, sizeof buffer, buffer);
+  uint16_t status = (buffer[0] + (buffer[1] << 8)) | relay;
+  buffer[0]       = status & 0xff;
+  buffer[1]       = status >> 8;
+  i2c_write_register (sd, DEVICE, XL9535_OUTPUT_PORT, sizeof buffer, buffer);
+}
+
+void
+switch_off_relay (i2c_handle sd, uint16_t relay)
+{
+  uint8_t buffer[2] = {};
+  i2c_read_register (sd, DEVICE, XL9535_OUTPUT_PORT, sizeof buffer, buffer);
+  uint16_t status = (buffer[0] + (buffer[1] << 8)) & (~relay);
+  buffer[0]       = status & 0xff;
+  buffer[1]       = status >> 8;
+  i2c_write_register (sd, DEVICE, XL9535_OUTPUT_PORT, sizeof buffer, buffer);
+}
+
+void
+test_relays_0 (i2c_handle sd)
+{
+  switch_on_relay (sd, RELAY_0 | RELAY_2 | RELAY_4 | RELAY_6 | RELAY_8 | RELAY_10 | RELAY_12 | RELAY_14);
+  sleep (1);
+  switch_on_relay (sd, RELAY_1 | RELAY_3 | RELAY_5 | RELAY_7 | RELAY_9 | RELAY_11 | RELAY_13 | RELAY_15);
+  sleep (1);
+  switch_off_relays (sd);
+}
+
+void
+test_relays_1 (i2c_handle sd)
+{
+  switch_off_relays (sd);
+  for (uint16_t i = 0; i < 16; i++)
     {
-      char *token = argv[i];
-      if (strlen (token) != 1)
-        {
-          goto badcommand;
-        }
-
-      switch (token[0])
-        {
-        case 'i':
-          i2c_status_t status;
-          i2c_get_status (sd, &status);
-          i2c_print_info (sd, &status);
-          break;
-
-        case 'x':
-          {
-            printf ("I2C bus is free: %s\n", i2c_reset (sd) ? "true" : "false");
-          }
-          break;
-
-        case 'd':
-          {
-            uint8_t devices[MAX_I2C_ADDRESSES];
-            i2c_scan (sd, devices);
-            for (int i = 0; i < MAX_I2C_ADDRESSES; i++)
-              {
-                if (devices[i] == '1')
-                  {
-                    printf ("%02x  ", i);
-                  }
-                else
-                  {
-                    printf ("--  ");
-                  }
-                if ((i % 8) == 7)
-                  {
-                    printf ("\n");
-                  }
-              }
-          }
-          break;
-
-        case 'w':
-          {
-            token            = argv[++i];
-            unsigned int dev = strtol (token, NULL, 0);
-
-            token = argv[++i];
-            uint8_t bytes[8192];
-            char   *endptr = token;
-            size_t  count  = 0;
-            while (count < sizeof (bytes))
-              {
-                bytes[count++] = strtol (endptr, &endptr, 0);
-                if (*endptr == '\0')
-                  {
-                    break;
-                  }
-                if (*endptr != ',')
-                  {
-                    fprintf (stderr, "Invalid bytes '%s'\n", token);
-                    return 1;
-                  }
-                endptr++;
-              }
-
-            i2c_start (sd, dev, write_op);
-            i2c_write_buffer (sd, count, bytes);
-          }
-          break;
-
-        case 'r':
-          {
-            token            = argv[++i];
-            unsigned int dev = strtol (token, NULL, 0);
-
-            token      = argv[++i];
-            size_t  nn = strtol (token, NULL, 0);
-            uint8_t bytes[8192];
-
-            i2c_start (sd, dev, read_op);
-            i2c_read_buffer (sd, nn, bytes);
-            i2c_stop (sd);
-
-            size_t i;
-            for (i = 0; i < nn; i++)
-              {
-                printf ("%s0x%02x", i ? "," : "", 0xff & bytes[i]);
-              }
-            printf ("\n");
-          }
-          break;
-
-        case 'p':
-          i2c_stop (sd);
-          break;
-
-        case 'm':
-          {
-            char line[100];
-
-            i2c_monitor (sd, true);
-            printf ("[Hit return to exit monitor mode]\n");
-            fgets (line, sizeof (line) - 1, stdin);
-            i2c_monitor (sd, false);
-          }
-          break;
-
-        case 'c':
-          {
-            i2c_capture (sd);
-          }
-          break;
-
-        default:
-        badcommand:
-          print_usage ();
-          return EXIT_FAILURE;
-        }
+      switch_on_relay (sd, 1 << i);
+      sleep (1);
     }
+  for (uint16_t i = 0; i < 16; i++)
+    {
+      switch_off_relay (sd, 1 << i);
+      sleep (1);
+    }
+}
 
-  return EXIT_SUCCESS;
+void
+init_relay_board (i2c_handle sd)
+{
+  inversion_off (sd);
+  enable_circuits (sd);
+}
+
+void
+shutdown_relay_board (i2c_handle sd)
+{
+  disable_circuits (sd);
+  i2c_disconnect (sd);
 }
 
 int
 main (int argc, char *argv[])
 {
-  if (argc < 3)
+  if (argc < 2)
     {
-      print_usage ();
+      printf ("Need USB device!");
       exit (EXIT_FAILURE);
     }
 
-  i2c_handle i2c;
-  if (!i2c_connect (&i2c, argv[1]))
+  i2c_handle sd;
+  if (!i2c_connect (&sd, argv[1]))
     {
       exit (EXIT_FAILURE);
     }
 
-  return i2c_commands (i2c, argc - 2, argv + 2);
+  init_relay_board (sd);
+
+  // tests
+  test_relays_0 (sd);
+  sleep (1);
+  test_relays_1 (sd);
+
+  shutdown_relay_board (sd);
 }

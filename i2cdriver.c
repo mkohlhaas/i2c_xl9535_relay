@@ -10,11 +10,11 @@
 #include <termios.h>
 #include <unistd.h>
 
+// opaque i2c handle
 struct i2c
 {
   int      port;        // port
   uint16_t e_ccitt_crc; // Host CCITT crc, should match hardware crc
-  int      dummy;
 };
 
 // Returns a random integer between `min` and `max`.
@@ -24,8 +24,6 @@ random_int (int min, int max)
   auto rnd = rand () % (max - min + 1);
   return min + rnd;
 }
-
-// ****************************   Serial port  ********************************
 
 // Opens a terminal connection to the FT230 chip.
 // Returns a file handle or `-1` if unsuccesful.
@@ -283,7 +281,7 @@ void
 i2c_scan (i2c_handle sd, uint8_t devices[MAX_I2C_ADDRESSES])
 {
   byte_command (sd, 'd');
-  readFromFT230 (sd->port, devices + 8, MAX_I2C_ADDRESSES);
+  readFromFT230 (sd->port, devices, MAX_I2C_ADDRESSES);
 }
 
 // Resets I2C bus.
@@ -370,19 +368,68 @@ i2c_read_buffer (i2c_handle sd, size_t s, uint8_t buffer[s])
   return true;
 }
 
+// bool
+// i2c_read_register (i2c_handle sd, uint8_t device, uint8_t reg, size_t count, uint8_t buffer[count])
+// {
+//   byte_command (sd, 'r');
+//   uint8_t cmd[] = { device, reg, count };
+//   writeToFT230 (sd->port, cmd, sizeof cmd);
+//   size_t bytes_read = readFromFT230 (sd->port, buffer, count);
+//   if (bytes_read != count)
+//     {
+//       return false;
+//     }
+//   crc_update (sd, buffer, count);
+//   return true;
+// }
+
 // Reads from `device` at `address` `count` bytes into `buffer`.
 // Returns `true` if read was succesful.
 bool
-i2c_read_register (i2c_handle sd, uint8_t device, uint8_t address, size_t count, uint8_t buffer[count])
+i2c_read_register (i2c_handle sd, uint8_t device, uint8_t reg, size_t count, uint8_t buffer[count])
 {
-  byte_command (sd, 'r');
-  uint8_t cmd[] = { device, address, count };
-  writeToFT230 (sd->port, cmd, sizeof cmd);
-  size_t bytes_read = readFromFT230 (sd->port, buffer, count);
-  if (bytes_read != count)
+  uint8_t buf[] = { device, reg };
+  if (!i2c_start (sd, device, write_op))
     {
+      dbgPrintExt ("Couldn't start write operation");
       return false;
     }
+
+  i2c_write_buffer (sd, sizeof buf, buf);
+
+  if (!i2c_start (sd, device, read_op))
+    {
+      dbgPrintExt ("Couldn't start read operation");
+      return false;
+    }
+  if (!i2c_read_buffer (sd, count, buffer))
+    {
+      dbgPrintExt ("Couldn't read buffer");
+      return false;
+    }
+
+  crc_update (sd, buffer, count);
+  return true;
+}
+
+bool
+i2c_write_register (i2c_handle sd, uint8_t device, uint8_t reg, size_t count, uint8_t buffer[count])
+{
+  uint8_t write_buffer[count + 1];
+  write_buffer[0] = reg;
+  memcpy (write_buffer + 1, buffer, count);
+  if (!i2c_start (sd, device, write_op))
+    {
+      dbgPrintExt ("Couldn't start write operation");
+      return false;
+    }
+  if (!i2c_write_buffer (sd, count + 1, write_buffer))
+    {
+      dbgPrintExt ("Couldn't write buffer");
+      return false;
+    }
+  i2c_stop (sd);
+
   crc_update (sd, buffer, count);
   return true;
 }
